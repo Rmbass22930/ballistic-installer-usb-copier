@@ -652,6 +652,14 @@ class AppTests(unittest.TestCase):
                     app.update_idletasks()
                     self.assertEqual(13, app.drive_selector.count)
                     self.assertEqual(13, len(app.drive_selector.get_selected_roots()))
+                    titles = [
+                        grandchild.cget("text")
+                        for child in app.drive_selector.inner.winfo_children()
+                        for grandchild in child.winfo_children()
+                        if isinstance(grandchild, main.ttk.Label) and grandchild.cget("style") == "Muted.TLabel"
+                    ]
+                    self.assertIn("Drive 1: G:  USB  USB1", titles)
+                    self.assertIn("Drive 13: S:  USB  USB13", titles)
                 finally:
                     app.on_close()
 

@@ -21,7 +21,7 @@ This folder contains the Python source for the desktop app that copies selected 
 ## Run the Python app
 
 ```powershell
-python .\main.py
+py -3.13 .\main.py
 ```
 
 ## Build the standalone EXE
@@ -41,3 +41,7 @@ Saved settings are stored in:
 ```text
 %USERPROFILE%\AppData\Local\BallisticInstallerUsbCopier\settings.json
 ```
+
+## Python Version
+
+This project is pinned to `Python 3.13` for local source runs and builds. The Tk/Tcl runtime on this machine is more stable under 3.13 than 3.14 for repeated `Tk()` startup during tests.

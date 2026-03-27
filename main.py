@@ -10,9 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 def _ensure_tk_runtime_env() -> None:
-    os.environ.pop("TCLLIBPATH", None)
-
-    is_frozen = bool(getattr(sys, "frozen", False) or getattr(sys, "_MEIPASS", None))
     candidate_roots = []
     for raw_root in (
         getattr(sys, "_MEIPASS", None),
@@ -30,14 +27,12 @@ def _ensure_tk_runtime_env() -> None:
         tcl_root = root / "tcl"
         if not tcl_root.exists():
             continue
-        tcl_candidates = sorted(path for path in tcl_root.glob("tcl8*") if path.is_dir())
-        tk_candidates = sorted(path for path in tcl_root.glob("tk8*") if path.is_dir())
-        if tcl_candidates and tk_candidates:
-            os.environ["TCL_LIBRARY"] = str(tcl_candidates[-1])
-            if is_frozen:
-                os.environ["TK_LIBRARY"] = str(tk_candidates[-1])
-            else:
-                os.environ.pop("TK_LIBRARY", None)
+        tcl_candidate = tcl_root / "tcl8.6"
+        tk_candidate = tcl_root / "tk8.6"
+        if (tcl_candidate / "init.tcl").exists() and (tk_candidate / "tk.tcl").exists():
+            os.environ["TCL_LIBRARY"] = str(tcl_candidate)
+            os.environ["TK_LIBRARY"] = str(tk_candidate)
+            os.environ["TCLLIBPATH"] = ""
             return
 
 _ensure_tk_runtime_env()
@@ -478,7 +473,7 @@ class DriveSelector(ttk.Frame):
             checkbox.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 8))
             self._bind_mousewheel(checkbox)
 
-            title = f"{drive.drive_letter}  {drive.type_name}"
+            title = f"Drive {row_index + 1}: {drive.drive_letter}  {drive.type_name}"
             if drive.label:
                 title += f"  {drive.label}"
             title_label = ttk.Label(card, text=title, style="Muted.TLabel")
@@ -546,7 +541,11 @@ def save_settings(data: dict) -> None:
 class App(tk.Tk):
     def __init__(self) -> None:
         _ensure_tk_runtime_env()
-        super().__init__()
+        try:
+            super().__init__()
+        except tk.TclError:
+            _ensure_tk_runtime_env()
+            super().__init__()
         self.title("Ballistic Target USB Copier")
         self.minsize(980, 720)
         center_window(self, 1120, 820)
@@ -1346,6 +1345,11 @@ class App(tk.Tk):
 
     def on_close(self) -> None:
         self.persist_settings()
+        try:
+            self.update_idletasks()
+            self.update()
+        except tk.TclError:
+            pass
         self.destroy()
 
 
