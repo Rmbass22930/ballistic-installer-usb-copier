@@ -10,11 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 def _ensure_tk_runtime_env() -> None:
-    tcl_env = os.environ.get("TCL_LIBRARY")
-    tk_env = os.environ.get("TK_LIBRARY")
-    if tcl_env and tk_env and Path(tcl_env).exists() and Path(tk_env).exists():
-        return
+    os.environ.pop("TCLLIBPATH", None)
 
+    is_frozen = bool(getattr(sys, "frozen", False) or getattr(sys, "_MEIPASS", None))
     candidate_roots = []
     for raw_root in (
         getattr(sys, "_MEIPASS", None),
@@ -35,8 +33,11 @@ def _ensure_tk_runtime_env() -> None:
         tcl_candidates = sorted(path for path in tcl_root.glob("tcl8*") if path.is_dir())
         tk_candidates = sorted(path for path in tcl_root.glob("tk8*") if path.is_dir())
         if tcl_candidates and tk_candidates:
-            os.environ.setdefault("TCL_LIBRARY", str(tcl_candidates[-1]))
-            os.environ.setdefault("TK_LIBRARY", str(tk_candidates[-1]))
+            os.environ["TCL_LIBRARY"] = str(tcl_candidates[-1])
+            if is_frozen:
+                os.environ["TK_LIBRARY"] = str(tk_candidates[-1])
+            else:
+                os.environ.pop("TK_LIBRARY", None)
             return
 
 _ensure_tk_runtime_env()
@@ -259,6 +260,24 @@ def list_drive_root_entries(drive_root: Path) -> list[str]:
         return sorted(child.name for child in drive_root.iterdir())
     except OSError:
         return []
+
+
+def scan_source_files(source_root: Path) -> tuple[list[Path], list[str]]:
+    files: list[Path] = []
+    warnings: list[str] = []
+
+    def _on_walk_error(error: OSError) -> None:
+        warnings.append(str(error))
+
+    for current_root, _dirnames, filenames in os.walk(source_root, onerror=_on_walk_error):
+        root_path = Path(current_root)
+        for filename in filenames:
+            candidate = root_path / filename
+            if candidate.is_file():
+                files.append(candidate)
+
+    files.sort(key=lambda path: str(path.relative_to(source_root)).lower())
+    return files, warnings
 
 
 def _remove_readonly(func, path, _exc_info) -> None:
@@ -890,7 +909,7 @@ class App(tk.Tk):
             if not source.exists() or not source.is_dir():
                 raise FileNotFoundError("Source folder does not exist.")
 
-            files = sorted([path for path in source.rglob("*") if path.is_file()])
+            files, warnings = scan_source_files(source)
             if not files:
                 raise FileNotFoundError("No files were found in the source folder.")
 
@@ -903,6 +922,8 @@ class App(tk.Tk):
             self.persist_settings()
             self.set_status(f"Loaded {len(files)} file(s) from {source}")
             self.append_log(f"Loaded source folder: {source}")
+            for warning in warnings:
+                self.append_log(f"Skipped path during scan: {warning}")
             self.refresh_preview()
         except Exception as exc:
             self.files = []

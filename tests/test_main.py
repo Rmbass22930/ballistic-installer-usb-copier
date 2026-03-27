@@ -58,6 +58,52 @@ class WidgetTests(unittest.TestCase):
 
 
 class AppTests(unittest.TestCase):
+    def test_refresh_files_loads_nested_source_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_dir = temp_root / "source"
+            nested_dir = source_dir / "nested" / "payload"
+            settings_dir = temp_root / "settings"
+            settings_path = settings_dir / "settings.json"
+            nested_dir.mkdir(parents=True)
+            (source_dir / "BallisticTargetSetup.exe").write_text("exe", encoding="utf-8")
+            (nested_dir / "README.txt").write_text("readme", encoding="utf-8")
+            (nested_dir / "InstallBallistic.exe").write_text("installer", encoding="utf-8")
+
+            settings_dir.mkdir(parents=True)
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "source_path": str(source_dir),
+                        "destination_folder": ".",
+                        "selected_drive_roots": [],
+                        "selected_files": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                mock.patch.object(main, "SETTINGS_DIR", settings_dir),
+                mock.patch.object(main, "SETTINGS_PATH", settings_path),
+                mock.patch.object(main, "list_candidate_drives", return_value=[]),
+            ):
+                app = main.App()
+                app.withdraw()
+                try:
+                    app.update_idletasks()
+                    loaded = [str(path.relative_to(source_dir)) for path in app.files]
+                    self.assertEqual(
+                        [
+                            "BallisticTargetSetup.exe",
+                            str(Path("nested") / "payload" / "InstallBallistic.exe"),
+                            str(Path("nested") / "payload" / "README.txt"),
+                        ],
+                        loaded,
+                    )
+                finally:
+                    app.on_close()
+
     def test_app_restores_saved_selection_and_detected_drives(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
