@@ -4,10 +4,29 @@ import os
 import queue
 import shutil
 import stat
+import subprocess
 import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+
+SINGLE_INSTANCE_MUTEX = "Local\\BallisticInstallerUsbCopierSingleton"
+
+
+def acquire_single_instance_mutex() -> object | None:
+    handle = ctypes.windll.kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX)
+    if not handle:
+        return None
+    if ctypes.windll.kernel32.GetLastError() == 183:
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return None
+    return handle
+
+
+def release_single_instance_mutex(handle: object | None) -> None:
+    if handle:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
 
 def _ensure_tk_runtime_env() -> None:
     candidate_roots = []
@@ -297,6 +316,7 @@ class ScrollableCheckboxList(ttk.Frame):
         super().__init__(master)
         self._vars: list[tuple[tk.BooleanVar, Path]] = []
         self.on_change = None
+        self.on_open_item = None
 
         self.canvas = tk.Canvas(
             self,
@@ -366,6 +386,7 @@ class ScrollableCheckboxList(ttk.Frame):
             )
             checkbox.grid(row=row_index, column=0, sticky="w", padx=4, pady=1)
             self._bind_mousewheel(checkbox)
+            checkbox.bind("<Double-Button-1>", lambda _event, path=file_path: self._open_item(path), add="+")
             self._vars.append((var, file_path))
 
         self._notify_change()
@@ -403,6 +424,11 @@ class ScrollableCheckboxList(ttk.Frame):
     def _notify_change(self) -> None:
         if self.on_change:
             self.on_change()
+
+    def _open_item(self, file_path: Path) -> str:
+        if self.on_open_item:
+            self.on_open_item(file_path)
+        return "break"
 
     def _bind_mousewheel(self, widget: tk.Misc) -> None:
         widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
@@ -538,6 +564,13 @@ def save_settings(data: dict) -> None:
         pass
 
 
+def open_path(path: Path) -> None:
+    if hasattr(os, "startfile"):
+        os.startfile(str(path))  # type: ignore[attr-defined]
+        return
+    subprocess.Popen([str(path)])
+
+
 class App(tk.Tk):
     def __init__(self) -> None:
         _ensure_tk_runtime_env()
@@ -635,6 +668,7 @@ class App(tk.Tk):
 
         self.file_list = ScrollableCheckboxList(files_frame)
         self.file_list.on_change = self.update_selection_summary
+        self.file_list.on_open_item = self.open_source_file
         self.file_list.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
 
         options_frame = ttk.LabelFrame(main, text="USB Targets")
@@ -883,6 +917,7 @@ class App(tk.Tk):
         ).grid(row=0, column=0, sticky="w")
 
         chooser = ScrollableCheckboxList(dialog)
+        chooser.on_open_item = self.open_source_file
         chooser.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
         chooser.set_items(self.source_path, self.files)
         chooser.set_selected_relative_paths(self.source_path, set(self.file_list.get_selected_relative_paths(self.source_path)))
@@ -931,6 +966,14 @@ class App(tk.Tk):
             self.set_status("Unable to load source files.")
             self.refresh_preview()
             messagebox.showerror("Source Folder Error", str(exc))
+
+    def open_source_file(self, file_path: Path) -> None:
+        try:
+            open_path(file_path)
+            self.set_status(f"Opened {file_path.name}")
+            self.append_log(f"Opened source file: {file_path}")
+        except Exception as exc:
+            messagebox.showerror("Open File Error", str(exc))
 
     def update_selection_summary(self) -> None:
         selected = self.file_list.get_selected()
@@ -1354,5 +1397,10 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
+    instance_mutex = acquire_single_instance_mutex()
+    if instance_mutex is not None:
+        try:
+            app = App()
+            app.mainloop()
+        finally:
+            release_single_instance_mutex(instance_mutex)

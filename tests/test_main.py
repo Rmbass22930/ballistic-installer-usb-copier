@@ -34,6 +34,20 @@ class SettingsTests(unittest.TestCase):
 
             self.assertEqual(payload, loaded)
 
+    def test_single_instance_mutex_rejects_second_instance(self) -> None:
+        fake_kernel32 = mock.Mock()
+        fake_kernel32.CreateMutexW.return_value = 123
+        fake_kernel32.GetLastError.return_value = 183
+
+        fake_ctypes = mock.Mock()
+        fake_ctypes.windll.kernel32 = fake_kernel32
+
+        with mock.patch.object(main, "ctypes", fake_ctypes):
+            handle = main.acquire_single_instance_mutex()
+
+        self.assertIsNone(handle)
+        fake_kernel32.CloseHandle.assert_called_once_with(123)
+
 
 class WidgetTests(unittest.TestCase):
     def test_checkbox_list_restores_saved_relative_paths(self) -> None:
@@ -53,6 +67,26 @@ class WidgetTests(unittest.TestCase):
 
                 selected = widget.get_selected()
                 self.assertEqual([exe_file], selected)
+            finally:
+                root.destroy()
+
+    def test_checkbox_list_double_click_opens_item(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            exe_file = base_path / "BallisticTargetSetup.exe"
+            exe_file.write_text("exe", encoding="utf-8")
+
+            opened: list[Path] = []
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                widget = main.ScrollableCheckboxList(root)
+                widget.on_open_item = opened.append
+                widget.set_items(base_path, [exe_file])
+
+                widget._open_item(exe_file)
+
+                self.assertEqual([exe_file], opened)
             finally:
                 root.destroy()
 
