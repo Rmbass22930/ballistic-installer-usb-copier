@@ -429,7 +429,7 @@ class DriveSelector(ttk.Frame):
             highlightthickness=1,
             highlightbackground=THEME["border"],
             borderwidth=0,
-            height=125,
+            height=420,
             background=THEME["panel"],
         )
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)

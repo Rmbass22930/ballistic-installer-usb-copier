@@ -608,6 +608,53 @@ class AppTests(unittest.TestCase):
                 finally:
                     app.on_close()
 
+    def test_drive_selector_handles_thirteen_usb_drives(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_dir = temp_root / "source"
+            settings_dir = temp_root / "settings"
+            settings_path = settings_dir / "settings.json"
+            source_dir.mkdir(parents=True)
+            (source_dir / "BallisticTargetSetup.exe").write_text("exe", encoding="utf-8")
+
+            settings_dir.mkdir(parents=True)
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "source_path": str(source_dir),
+                        "destination_folder": ".",
+                        "selected_drive_roots": [],
+                        "selected_files": ["BallisticTargetSetup.exe"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            fake_drives = [
+                main.DriveInfo(
+                    root=fr"{chr(ord('G') + index)}:\\",
+                    label=f"USB{index + 1}",
+                    drive_type=main.DRIVE_REMOVABLE,
+                    free_bytes=1024 * 1024,
+                    total_bytes=2048 * 1024,
+                )
+                for index in range(13)
+            ]
+
+            with (
+                mock.patch.object(main, "SETTINGS_DIR", settings_dir),
+                mock.patch.object(main, "SETTINGS_PATH", settings_path),
+                mock.patch.object(main, "list_candidate_drives", return_value=fake_drives),
+            ):
+                app = main.App()
+                app.withdraw()
+                try:
+                    app.update_idletasks()
+                    self.assertEqual(13, app.drive_selector.count)
+                    self.assertEqual(13, len(app.drive_selector.get_selected_roots()))
+                finally:
+                    app.on_close()
+
     def test_preview_text_lists_copy_and_delete_details(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
